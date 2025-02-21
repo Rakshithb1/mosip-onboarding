@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# warning: do not use the certificates produced by this tool in production. This is for testing purposes only
+# This is reference script.
+
+path=$1
+# PROP_FILE=$path/certdetails.properties
+
+# function prop {
+    # grep "${1}=" ${PROP_FILE}|cut -d'=' -f2
+# }
+
+# partner_name=$(prop 'partner-kc-username')
+# pname=$(echo ${partner_name^})
+# country=$(prop 'Country')
+# state=$(prop 'State')
+# locality=$(prop 'Locality')
+# orgnisation=$(prop 'partner-org-name')
+# email_id=$(prop 'partner-kc-user-email')
+# common_name=$pname
+# keystore_password=$(prop 'keystore-password')
+
+partner_name=$( printenv PARTNER_KC_USERNAME ) 
+echo "$partner_name is the name of the partner."
+country=IN
+state=Kar
+locality=Blr
+orgnisation=IITB
+email_id=user_$(date +%s%N)@example.com
+common_name=$partner_name
+keystore_password=mosip123
+export keystore_password
+echo "$keystore_password" > key.pwd
+
+echo "updating conf"
+sed -i 's/\(^C =\).*/\1 '$country'/' $path/custom-certs/root-openssl.cnf
+sed -i 's/\(^ST =\).*/\1 '$state'/' $path/custom-certs/root-openssl.cnf
+sed -i 's/\(^L =\).*/\1 '$locality'/' $path/custom-certs/root-openssl.cnf
+sed -i 's/\(^O =\).*/\1 '$orgnisation'/' $path/custom-certs/root-openssl.cnf
+sed -i 's/\(^emailAddress =\).*/\1 '$email_id'/' $path/custom-certs/root-openssl.cnf
+sed -i 's/\(^CN =\).*/\1 '$common_name'-Root/' $path/custom-certs/root-openssl.cnf
+
+sed -i 's/\(^C =\).*/\1 '$country'/' $path/custom-certs/client-openssl.cnf
+sed -i 's/\(^ST =\).*/\1 '$state'/' $path/custom-certs/client-openssl.cnf
+sed -i 's/\(^L =\).*/\1 '$locality'/' $path/custom-certs/client-openssl.cnf
+sed -i 's/\(^O =\).*/\1 '$orgnisation'/' $path/custom-certs/client-openssl.cnf
+sed -i 's/\(^emailAddress =\).*/\1 '$email_id'/' $path/custom-certs/client-openssl.cnf
+sed -i 's/\(^CN =\).*/\1 '$common_name'-Client/' $path/custom-certs/client-openssl.cnf
+
+cert_path=$path/custom-certs/$partner_name
+rm key.pwd
+
+if [ -d "$cert_path" ]
+then
+    echo "Directory $cert_path exists. Skipping cert creation"
+else
+  mkdir -p $cert_path
+  ## certificate authority
+  echo "==================== Creating CA certificate"
+  openssl genrsa -out $cert_path/RootCA.key 4096
+  openssl req -x509 -new -key $cert_path/RootCA.key -sha256 -days 1825 -out $cert_path/RootCA.pem -config $path/custom-certs/root-openssl.cnf
+
+
+##Partner certificate
+  echo "==================== Creating partner certificate"
+  openssl genrsa -out $cert_path/Client.key 4096
+  openssl req -new -key $cert_path/Client.key -out $cert_path/Client.csr -config $path/custom-certs/client-openssl.cnf
+  openssl x509 -req -days 1825 -extensions v3_req -extfile $path/custom-certs/client-openssl.cnf -in $cert_path/Client.csr -CA $cert_path/RootCA.pem -CAkey $cert_path/RootCA.key -CAcreateserial -out $cert_path/Client.pem
+
+  openssl pkcs12 -export -in $cert_path/Client.pem -inkey $cert_path/Client.key -out $cert_path/keystore.p12 -name $partner_name -password pass:$keystore_password
+
+  echo "Cert generation complete"$'\n'
+
+fi
+
